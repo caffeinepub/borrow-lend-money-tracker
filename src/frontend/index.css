@@ -1,0 +1,140 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:ital,wght@0,400;0,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* Core palette — teal-forward financial theme */
+    --background: 0.976 0.005 200;
+    --foreground: 0.18 0.02 240;
+    --card: 1 0 0;
+    --card-foreground: 0.18 0.02 240;
+    --popover: 1 0 0;
+    --popover-foreground: 0.18 0.02 240;
+
+    /* Teal primary */
+    --primary: 0.55 0.14 185;
+    --primary-foreground: 0.99 0 0;
+
+    --secondary: 0.945 0.012 200;
+    --secondary-foreground: 0.28 0.03 220;
+
+    --muted: 0.945 0.01 200;
+    --muted-foreground: 0.52 0.02 220;
+
+    --accent: 0.93 0.03 185;
+    --accent-foreground: 0.35 0.1 185;
+
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+
+    --border: 0.9 0.012 220;
+    --input: 0.9 0.012 220;
+    --ring: 0.55 0.14 185;
+
+    /* Semantic tokens for financial data */
+    --lent: 0.52 0.15 155;
+    --lent-bg: 0.95 0.05 155;
+    --lent-foreground: 0.28 0.1 155;
+
+    --borrowed: 0.5 0.2 25;
+    --borrowed-bg: 0.97 0.04 25;
+    --borrowed-foreground: 0.32 0.14 25;
+
+    --pending: 0.72 0.18 85;
+    --pending-bg: 0.97 0.04 85;
+    --pending-foreground: 0.42 0.14 85;
+
+    --chart-1: 0.55 0.14 185;
+    --chart-2: 0.52 0.15 155;
+    --chart-3: 0.5 0.2 25;
+    --chart-4: 0.72 0.18 85;
+    --chart-5: 0.6 0.18 280;
+
+    --sidebar: 0.97 0.008 200;
+    --sidebar-foreground: 0.18 0.02 240;
+    --sidebar-primary: 0.55 0.14 185;
+    --sidebar-primary-foreground: 0.99 0 0;
+    --sidebar-accent: 0.93 0.03 185;
+    --sidebar-accent-foreground: 0.35 0.1 185;
+    --sidebar-border: 0.9 0.012 220;
+    --sidebar-ring: 0.55 0.14 185;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-optical-sizing: auto;
+  }
+
+  /* Smooth tap highlight removal on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  .font-mono-nums {
+    font-family: 'DM Mono', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .balance-card-gradient {
+    background: linear-gradient(135deg, oklch(0.55 0.14 185), oklch(0.45 0.16 200));
+  }
+
+  .lent-card-gradient {
+    background: linear-gradient(135deg, oklch(0.52 0.15 155), oklch(0.44 0.17 165));
+  }
+
+  .borrowed-card-gradient {
+    background: linear-gradient(135deg, oklch(0.5 0.2 25), oklch(0.44 0.22 15));
+  }
+
+  .glass-shimmer {
+    background: linear-gradient(
+      105deg,
+      transparent 40%,
+      rgba(255, 255, 255, 0.15) 50%,
+      transparent 60%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 3s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: 200% center; }
+    100% { background-position: -200% center; }
+  }
+
+  .slide-up {
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .fade-in {
+    animation: fadeIn 0.25s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+}
