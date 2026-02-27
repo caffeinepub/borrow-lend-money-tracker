@@ -91,50 +91,52 @@ export class ExternalBlob {
 }
 export type Time = bigint;
 export interface Contact {
-    id: string;
-    nickName: string;
-    ownerPrincipal: Principal;
-    createdAt: Time;
-    contactPrincipal: Principal;
+    principal: Principal;
+    addedAt: Time;
 }
 export interface Notification {
     id: string;
+    userId: Principal;
     createdAt: Time;
-    isRead: boolean;
-    userPrincipal: Principal;
+    read: boolean;
+    relatedRequestId?: string;
     message: string;
-}
-export interface User {
-    principal: Principal;
-    displayName: string;
-    createdAt: Time;
-    isActive: boolean;
 }
 export interface BorrowLendRequest {
     id: string;
-    status: string;
+    status: RequestStatus;
     createdAt: Time;
+    description: string;
     toPrincipal: Principal;
+    updatedAt: Time;
     fromPrincipal: Principal;
-    notes: string;
     amount: number;
-    respondedAt?: Time;
-    requestType: string;
+    requestType: RequestType;
 }
 export interface UserProfile {
     displayName: string;
-    name: string;
     createdAt: Time;
-    isActive: boolean;
+    email: string;
+    mobile: string;
 }
 export interface Transaction {
     id: string;
+    completedAt: Time;
     requestId: string;
-    transactionType: string;
-    createdAt: Time;
     toPrincipal: Principal;
     fromPrincipal: Principal;
     amount: number;
+    requestType: RequestType;
+}
+export enum RequestStatus {
+    pending = "pending",
+    completed = "completed",
+    rejected = "rejected",
+    accepted = "accepted"
+}
+export enum RequestType {
+    lend = "lend",
+    borrow = "borrow"
 }
 export enum UserRole {
     admin = "admin",
@@ -143,33 +145,38 @@ export enum UserRole {
 }
 export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
-    addContact(contactPrincipal: Principal, nickName: string): Promise<string>;
+    addContact(contactPrincipal: Principal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    createRequest(toPrincipal: Principal, amount: number, requestType: string, notes: string): Promise<string>;
+    createRequest(toPrincipal: Principal, requestType: RequestType, amount: number, description: string): Promise<string>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getContacts(): Promise<Array<Contact>>;
     getDashboardSummary(): Promise<{
-        totalLent: number;
-        pendingRequests: bigint;
-        totalBorrowed: number;
+        pendingCount: bigint;
+        totalOwe: number;
+        totalOwedToMe: number;
     }>;
-    getMyContacts(): Promise<Array<Contact>>;
     getMyNotifications(): Promise<Array<Notification>>;
-    getMyProfile(): Promise<User>;
-    getMyRequests(): Promise<{
-        sent: Array<BorrowLendRequest>;
-        received: Array<BorrowLendRequest>;
-    }>;
+    getMyProfile(): Promise<UserProfile | null>;
+    getMyRequests(): Promise<Array<BorrowLendRequest>>;
     getMyTransactions(): Promise<Array<Transaction>>;
+    getRequestById(requestId: string): Promise<BorrowLendRequest | null>;
+    getUnreadCount(): Promise<bigint>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
-    markAllNotificationsRead(): Promise<string>;
-    markNotificationRead(notificationId: string): Promise<string>;
-    registerOrUpdateProfile(displayName: string): Promise<string>;
-    respondToRequest(requestId: string, accept: boolean): Promise<string>;
+    isContact(contactPrincipal: Principal): Promise<boolean>;
+    isProfileComplete(): Promise<boolean>;
+    markAllNotificationsRead(): Promise<void>;
+    markCompleted(requestId: string): Promise<void>;
+    markNotificationRead(notificationId: string): Promise<void>;
+    registerProfile(mobile: string, displayName: string, email: string): Promise<void>;
+    removeContact(contactPrincipal: Principal): Promise<void>;
+    respondToRequest(requestId: string, accept: boolean): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
+    searchContactByMobileOrEmail(searchTerm: string): Promise<Array<[Principal, UserProfile]>>;
+    updateProfile(mobile: string, displayName: string): Promise<void>;
 }
-import type { BorrowLendRequest as _BorrowLendRequest, Time as _Time, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
+import type { BorrowLendRequest as _BorrowLendRequest, Notification as _Notification, RequestStatus as _RequestStatus, RequestType as _RequestType, Time as _Time, Transaction as _Transaction, UserProfile as _UserProfile, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _initializeAccessControlWithSecret(arg0: string): Promise<void> {
@@ -186,17 +193,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async addContact(arg0: Principal, arg1: string): Promise<string> {
+    async addContact(arg0: Principal): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.addContact(arg0, arg1);
+                const result = await this.actor.addContact(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.addContact(arg0, arg1);
+            const result = await this.actor.addContact(arg0);
             return result;
         }
     }
@@ -214,17 +221,17 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async createRequest(arg0: Principal, arg1: number, arg2: string, arg3: string): Promise<string> {
+    async createRequest(arg0: Principal, arg1: RequestType, arg2: number, arg3: string): Promise<string> {
         if (this.processError) {
             try {
-                const result = await this.actor.createRequest(arg0, arg1, arg2, arg3);
+                const result = await this.actor.createRequest(arg0, to_candid_RequestType_n3(this._uploadFile, this._downloadFile, arg1), arg2, arg3);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.createRequest(arg0, arg1, arg2, arg3);
+            const result = await this.actor.createRequest(arg0, to_candid_RequestType_n3(this._uploadFile, this._downloadFile, arg1), arg2, arg3);
             return result;
         }
     }
@@ -232,34 +239,48 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserProfile();
-                return from_candid_opt_n3(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserProfile();
-            return from_candid_opt_n3(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n4(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n6(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n4(this._uploadFile, this._downloadFile, result);
+            return from_candid_UserRole_n6(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getContacts(): Promise<Array<Contact>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getContacts();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getContacts();
+            return result;
         }
     }
     async getDashboardSummary(): Promise<{
-        totalLent: number;
-        pendingRequests: bigint;
-        totalBorrowed: number;
+        pendingCount: bigint;
+        totalOwe: number;
+        totalOwedToMe: number;
     }> {
         if (this.processError) {
             try {
@@ -274,76 +295,87 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async getMyContacts(): Promise<Array<Contact>> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getMyContacts();
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getMyContacts();
-            return result;
-        }
-    }
     async getMyNotifications(): Promise<Array<Notification>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getMyNotifications();
-                return result;
+                return from_candid_vec_n8(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getMyNotifications();
-            return result;
+            return from_candid_vec_n8(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getMyProfile(): Promise<User> {
+    async getMyProfile(): Promise<UserProfile | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getMyProfile();
-                return result;
+                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getMyProfile();
-            return result;
+            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getMyRequests(): Promise<{
-        sent: Array<BorrowLendRequest>;
-        received: Array<BorrowLendRequest>;
-    }> {
+    async getMyRequests(): Promise<Array<BorrowLendRequest>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getMyRequests();
-                return from_candid_record_n6(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n12(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getMyRequests();
-            return from_candid_record_n6(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n12(this._uploadFile, this._downloadFile, result);
         }
     }
     async getMyTransactions(): Promise<Array<Transaction>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getMyTransactions();
-                return result;
+                return from_candid_vec_n19(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getMyTransactions();
+            return from_candid_vec_n19(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getRequestById(arg0: string): Promise<BorrowLendRequest | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getRequestById(arg0);
+                return from_candid_opt_n22(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getRequestById(arg0);
+            return from_candid_opt_n22(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getUnreadCount(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUnreadCount();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getUnreadCount();
             return result;
         }
     }
@@ -351,14 +383,14 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getUserProfile(arg0);
-                return from_candid_opt_n3(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getUserProfile(arg0);
-            return from_candid_opt_n3(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n5(this._uploadFile, this._downloadFile, result);
         }
     }
     async isCallerAdmin(): Promise<boolean> {
@@ -375,7 +407,35 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async markAllNotificationsRead(): Promise<string> {
+    async isContact(arg0: Principal): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.isContact(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.isContact(arg0);
+            return result;
+        }
+    }
+    async isProfileComplete(): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.isProfileComplete();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.isProfileComplete();
+            return result;
+        }
+    }
+    async markAllNotificationsRead(): Promise<void> {
         if (this.processError) {
             try {
                 const result = await this.actor.markAllNotificationsRead();
@@ -389,7 +449,21 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async markNotificationRead(arg0: string): Promise<string> {
+    async markCompleted(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.markCompleted(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.markCompleted(arg0);
+            return result;
+        }
+    }
+    async markNotificationRead(arg0: string): Promise<void> {
         if (this.processError) {
             try {
                 const result = await this.actor.markNotificationRead(arg0);
@@ -403,21 +477,35 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async registerOrUpdateProfile(arg0: string): Promise<string> {
+    async registerProfile(arg0: string, arg1: string, arg2: string): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.registerOrUpdateProfile(arg0);
+                const result = await this.actor.registerProfile(arg0, arg1, arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.registerOrUpdateProfile(arg0);
+            const result = await this.actor.registerProfile(arg0, arg1, arg2);
             return result;
         }
     }
-    async respondToRequest(arg0: string, arg1: boolean): Promise<string> {
+    async removeContact(arg0: Principal): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.removeContact(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.removeContact(arg0);
+            return result;
+        }
+    }
+    async respondToRequest(arg0: string, arg1: boolean): Promise<void> {
         if (this.processError) {
             try {
                 const result = await this.actor.respondToRequest(arg0, arg1);
@@ -445,65 +533,165 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async searchContactByMobileOrEmail(arg0: string): Promise<Array<[Principal, UserProfile]>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.searchContactByMobileOrEmail(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.searchContactByMobileOrEmail(arg0);
+            return result;
+        }
+    }
+    async updateProfile(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateProfile(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateProfile(arg0, arg1);
+            return result;
+        }
+    }
 }
-function from_candid_BorrowLendRequest_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BorrowLendRequest): BorrowLendRequest {
-    return from_candid_record_n9(_uploadFile, _downloadFile, value);
+function from_candid_BorrowLendRequest_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _BorrowLendRequest): BorrowLendRequest {
+    return from_candid_record_n14(_uploadFile, _downloadFile, value);
 }
-function from_candid_UserRole_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n5(_uploadFile, _downloadFile, value);
+function from_candid_Notification_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Notification): Notification {
+    return from_candid_record_n10(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Time]): Time | null {
+function from_candid_RequestStatus_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _RequestStatus): RequestStatus {
+    return from_candid_variant_n16(_uploadFile, _downloadFile, value);
+}
+function from_candid_RequestType_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _RequestType): RequestType {
+    return from_candid_variant_n18(_uploadFile, _downloadFile, value);
+}
+function from_candid_Transaction_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Transaction): Transaction {
+    return from_candid_record_n21(_uploadFile, _downloadFile, value);
+}
+function from_candid_UserRole_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n7(_uploadFile, _downloadFile, value);
+}
+function from_candid_opt_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
+function from_candid_opt_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_BorrowLendRequest]): BorrowLendRequest | null {
+    return value.length === 0 ? null : from_candid_BorrowLendRequest_n13(_uploadFile, _downloadFile, value[0]);
+}
+function from_candid_opt_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserProfile]): UserProfile | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_record_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    sent: Array<_BorrowLendRequest>;
-    received: Array<_BorrowLendRequest>;
-}): {
-    sent: Array<BorrowLendRequest>;
-    received: Array<BorrowLendRequest>;
-} {
-    return {
-        sent: from_candid_vec_n7(_uploadFile, _downloadFile, value.sent),
-        received: from_candid_vec_n7(_uploadFile, _downloadFile, value.received)
-    };
-}
-function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: string;
-    status: string;
+    userId: Principal;
     createdAt: _Time;
-    toPrincipal: Principal;
-    fromPrincipal: Principal;
-    notes: string;
-    amount: number;
-    respondedAt: [] | [_Time];
-    requestType: string;
+    read: boolean;
+    relatedRequestId: [] | [string];
+    message: string;
 }): {
     id: string;
-    status: string;
+    userId: Principal;
     createdAt: Time;
-    toPrincipal: Principal;
-    fromPrincipal: Principal;
-    notes: string;
-    amount: number;
-    respondedAt?: Time;
-    requestType: string;
+    read: boolean;
+    relatedRequestId?: string;
+    message: string;
 } {
     return {
         id: value.id,
-        status: value.status,
+        userId: value.userId,
         createdAt: value.createdAt,
-        toPrincipal: value.toPrincipal,
-        fromPrincipal: value.fromPrincipal,
-        notes: value.notes,
-        amount: value.amount,
-        respondedAt: record_opt_to_undefined(from_candid_opt_n10(_uploadFile, _downloadFile, value.respondedAt)),
-        requestType: value.requestType
+        read: value.read,
+        relatedRequestId: record_opt_to_undefined(from_candid_opt_n11(_uploadFile, _downloadFile, value.relatedRequestId)),
+        message: value.message
     };
 }
-function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    id: string;
+    status: _RequestStatus;
+    createdAt: _Time;
+    description: string;
+    toPrincipal: Principal;
+    updatedAt: _Time;
+    fromPrincipal: Principal;
+    amount: number;
+    requestType: _RequestType;
+}): {
+    id: string;
+    status: RequestStatus;
+    createdAt: Time;
+    description: string;
+    toPrincipal: Principal;
+    updatedAt: Time;
+    fromPrincipal: Principal;
+    amount: number;
+    requestType: RequestType;
+} {
+    return {
+        id: value.id,
+        status: from_candid_RequestStatus_n15(_uploadFile, _downloadFile, value.status),
+        createdAt: value.createdAt,
+        description: value.description,
+        toPrincipal: value.toPrincipal,
+        updatedAt: value.updatedAt,
+        fromPrincipal: value.fromPrincipal,
+        amount: value.amount,
+        requestType: from_candid_RequestType_n17(_uploadFile, _downloadFile, value.requestType)
+    };
+}
+function from_candid_record_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    id: string;
+    completedAt: _Time;
+    requestId: string;
+    toPrincipal: Principal;
+    fromPrincipal: Principal;
+    amount: number;
+    requestType: _RequestType;
+}): {
+    id: string;
+    completedAt: Time;
+    requestId: string;
+    toPrincipal: Principal;
+    fromPrincipal: Principal;
+    amount: number;
+    requestType: RequestType;
+} {
+    return {
+        id: value.id,
+        completedAt: value.completedAt,
+        requestId: value.requestId,
+        toPrincipal: value.toPrincipal,
+        fromPrincipal: value.fromPrincipal,
+        amount: value.amount,
+        requestType: from_candid_RequestType_n17(_uploadFile, _downloadFile, value.requestType)
+    };
+}
+function from_candid_variant_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    pending: null;
+} | {
+    completed: null;
+} | {
+    rejected: null;
+} | {
+    accepted: null;
+}): RequestStatus {
+    return "pending" in value ? RequestStatus.pending : "completed" in value ? RequestStatus.completed : "rejected" in value ? RequestStatus.rejected : "accepted" in value ? RequestStatus.accepted : value;
+}
+function from_candid_variant_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    lend: null;
+} | {
+    borrow: null;
+}): RequestType {
+    return "lend" in value ? RequestType.lend : "borrow" in value ? RequestType.borrow : value;
+}
+function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -512,8 +700,17 @@ function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uin
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-function from_candid_vec_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_BorrowLendRequest>): Array<BorrowLendRequest> {
-    return value.map((x)=>from_candid_BorrowLendRequest_n8(_uploadFile, _downloadFile, x));
+function from_candid_vec_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_BorrowLendRequest>): Array<BorrowLendRequest> {
+    return value.map((x)=>from_candid_BorrowLendRequest_n13(_uploadFile, _downloadFile, x));
+}
+function from_candid_vec_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Transaction>): Array<Transaction> {
+    return value.map((x)=>from_candid_Transaction_n20(_uploadFile, _downloadFile, x));
+}
+function from_candid_vec_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Notification>): Array<Notification> {
+    return value.map((x)=>from_candid_Notification_n9(_uploadFile, _downloadFile, x));
+}
+function to_candid_RequestType_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: RequestType): _RequestType {
+    return to_candid_variant_n4(_uploadFile, _downloadFile, value);
 }
 function to_candid_UserRole_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UserRole): _UserRole {
     return to_candid_variant_n2(_uploadFile, _downloadFile, value);
@@ -531,6 +728,17 @@ function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8
         user: null
     } : value == UserRole.guest ? {
         guest: null
+    } : value;
+}
+function to_candid_variant_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: RequestType): {
+    lend: null;
+} | {
+    borrow: null;
+} {
+    return value == RequestType.lend ? {
+        lend: null
+    } : value == RequestType.borrow ? {
+        borrow: null
     } : value;
 }
 export interface CreateActorOptions {

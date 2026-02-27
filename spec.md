@@ -1,65 +1,56 @@
 # Borrow & Lend Money Tracker
 
 ## Current State
-New project. No existing code.
+- Internet Identity (ICP native) auth
+- Mandatory signup: username, email, mobile (all unique)
+- Email is locked after signup; username/mobile/displayName can be updated
+- Contacts can be added by username, email, or mobile search
+- In-app notifications for request events
+- No Google login; no email notifications sent
 
 ## Requested Changes (Diff)
 
 ### Add
-- Full-stack Borrow & Lend Money Tracker web app
-- Internet Identity authentication
-- Contact management (add by display name/ID, optional nickname)
-- Borrow/Lend request flow: create, accept, reject, track status
-- Transaction records auto-created on request acceptance
-- In-app notifications for all request events
-- Dashboard with summary cards (total borrowed, total lent, net balance)
-- Profile page with editable display name
-- Mobile-first layout with fixed bottom navigation (5 tabs)
-- Notification bell in header with unread badge count
+- Google OAuth login as the sole authentication method
+- On first Google login, fetch email and name automatically from Google
+- Post-signup onboarding step asking only for mobile number (email and name pre-filled from Google, locked/read-only)
+- `addContactByMobileOrEmail(searchTerm)` backend function to find users by mobile or email only (no principal-based lookup in UI)
+- Email notification dispatch on all user activities: added as contact, borrow/lend request created, request accepted/rejected/completed, any other relevant events
+  - NOTE: Email sending is disabled on current plan -- email notifications will be queued/logged in backend but not delivered; in-app notifications remain the primary channel
 
 ### Modify
-- N/A
+- Auth flow: replace Internet Identity with Google OAuth (via authorization component)
+- Profile: name (displayName) is editable; email is pre-filled from Google and locked (not editable); mobile is mandatory
+- Profile update endpoint: only allows updating name and mobile, never email
+- Contact search: restrict to mobile or email lookup only (remove principal/username-based contact add in UI)
+- Onboarding page: show pre-filled name and email from Google (read-only), ask only for mobile number
 
 ### Remove
-- N/A
+- Internet Identity login button/flow
+- Username field from signup (name comes from Google)
+- Any UI to set/change email after signup
 
 ## Implementation Plan
-
-### Backend (Motoko)
-- `User` entity: principal, displayName, mobileNumber, createdAt, isActive
-- `Contact` entity: id, ownerPrincipal, contactPrincipal, nickName, createdAt
-- `BorrowLendRequest` entity: id, fromPrincipal, toPrincipal, amount, type (Borrow|Lend), status (Pending|Accepted|Rejected), notes, createdAt, respondedAt
-- `Transaction` entity: id, requestId, fromPrincipal, toPrincipal, amount, type, createdAt
-- `Notification` entity: id, userPrincipal, message, isRead, createdAt
-- APIs: register/login (upsert user on II login), getMyProfile, updateProfile
-- Contact APIs: addContact, getMyContacts
-- Request APIs: createRequest, getRequests (sent/received/all), respondRequest (accept/reject)
-- Transaction APIs: getMyTransactions
-- Notification APIs: getMyNotifications, markNotificationRead, markAllRead
-- Dashboard API: getDashboardSummary (totals, recent transactions, pending count)
-- Validation: amount > 0, no self-request, no duplicate pending requests
-- No hard deletes anywhere
-
-### Frontend (React + TypeScript + Tailwind)
-- Internet Identity login page
-- Bottom navigation: Dashboard, Contacts, Requests, Transactions, Profile
-- Header with notification bell + unread badge
-- Dashboard: summary cards (borrowed/lent/net), pending badge, quick "New Request" button, recent 5 transactions
-- Contacts page: list with avatar initials, search filter, add contact modal
-- Requests page: segmented tabs (Sent/Received/All), status badges (yellow/green/red), action buttons (accept/reject for received pending)
-- Transactions page: chronological list, filter by type, color-coded amounts
-- Notifications page (accessible from bell): list with read/unread state, mark all read
-- Profile page: display name editable, principal ID shown, account info
-- New Request modal/page: select contact, enter amount, type (borrow/lend), notes
-- Confirmation dialogs for accept/reject actions
-- Mobile-first, blue/green color scheme, card-based layouts
+1. Select `authorization` component (already selected) -- confirm Google OAuth is wired
+2. Update backend:
+   - Profile type: replace `username` with `googleName` (name from Google, editable); `email` from Google (immutable); `mobile` mandatory
+   - `registerProfile(mobile, displayName)` -- email comes from auth context, not user input
+   - `updateProfile(mobile, displayName)` -- only mobile and displayName changeable
+   - `addContactBySearch(searchTerm)` -- search by email or mobile only, return matching principal + profile
+   - Keep all notification logic; add notification types for contact-added events
+   - Add email notification queue structure (store pending emails in stable var for future dispatch)
+3. Update frontend:
+   - Replace Internet Identity hooks with Google OAuth hooks from authorization component
+   - LoginPage: show "Sign in with Google" button only
+   - OnboardingPage: show read-only name + email from Google, single input for mobile number
+   - ProfilePage: name and mobile editable, email read-only/locked
+   - ContactsPage: search by mobile or email only
+   - All existing request/notification flows remain intact
 
 ## UX Notes
-- Fixed bottom navigation bar with 5 tabs (Dashboard, Contacts, Requests, Transactions, Profile)
-- Notification bell top-right of header
-- Status badges: Pending=amber, Accepted=green, Rejected=red
-- Amount color coding: lent = red (money out), borrowed = green (money in) on transactions
-- Compact cards, no long scrolling
-- FAB button for adding contacts / new requests
-- Confirmation dialogs before accept/reject
-- Display name required before using the app (onboarding step after first login)
+- Mobile-first layout, bottom navigation preserved
+- Onboarding is a single-step form (just mobile input) since name/email come from Google
+- Profile page clearly marks email as "from Google account" and non-editable
+- Contact search placeholder: "Search by mobile or email"
+- In-app notification bell shows all activity notifications as before
+- Email notifications note: currently stored but not delivered (plan limitation)

@@ -1,19 +1,29 @@
 import { useState, useEffect, useCallback } from "react";
 import { useActor } from "../hooks/useActor";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import { getInitials, truncatePrincipal, parseBackendResult } from "../utils/helpers";
+import { getInitials } from "../utils/helpers";
 import { toast } from "sonner";
-import { Pencil, Check, X, Copy, LogOut, User } from "lucide-react";
-import type { User as UserType } from "../backend";
+import { LogOut, Lock, Phone, User, Mail } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
+import type { UserProfile } from "../backend.d";
 
-export default function ProfilePage() {
+interface ProfilePageProps {
+  onProfileUpdate?: () => void;
+}
+
+export default function ProfilePage({ onProfileUpdate }: ProfilePageProps) {
   const { actor } = useActor();
-  const { clear } = useInternetIdentity();
-  const [profile, setProfile] = useState<UserType | null>(null);
+  const { clear, identity } = useInternetIdentity();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const [displayName, setDisplayName] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [errors, setErrors] = useState<{ displayName?: string; mobile?: string; general?: string }>({});
+
+  const principalStr = identity?.getPrincipal().toString() ?? "";
 
   const load = useCallback(async () => {
     if (!actor) return;
@@ -21,7 +31,10 @@ export default function ProfilePage() {
     try {
       const result = await actor.getMyProfile();
       setProfile(result);
-      setNewName(result.displayName);
+      if (result) {
+        setDisplayName(result.displayName ?? "");
+        setMobile(result.mobile ?? "");
+      }
     } catch {
       toast.error("Failed to load profile");
     } finally {
@@ -33,127 +46,249 @@ export default function ProfilePage() {
     load();
   }, [load]);
 
+  // Track changes — only displayName and mobile are editable
+  useEffect(() => {
+    if (!profile) return;
+    const changed =
+      displayName !== (profile.displayName ?? "") ||
+      mobile !== (profile.mobile ?? "");
+    setHasChanges(changed);
+  }, [displayName, mobile, profile]);
+
+  const validateFields = () => {
+    const errs: typeof errors = {};
+    if (!displayName.trim()) {
+      errs.displayName = "Name is required";
+    } else if (displayName.trim().length < 2) {
+      errs.displayName = "Name must be at least 2 characters";
+    }
+    if (!mobile.trim()) {
+      errs.mobile = "Mobile number is required";
+    } else if (!/^\+?[0-9\s\-()]{7,20}$/.test(mobile.trim())) {
+      errs.mobile = "Enter a valid mobile number with country code";
+    }
+    return errs;
+  };
+
   const handleSave = async () => {
-    if (!newName.trim() || !actor) return;
+    if (!actor || !hasChanges) return;
+
+    const validationErrors = validateFields();
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      return;
+    }
+
     setSaving(true);
+    setErrors({});
     try {
-      const result = await actor.registerOrUpdateProfile(newName.trim());
-      const parsed = parseBackendResult(result);
-      if (parsed.err) {
-        toast.error(parsed.err);
+      await actor.updateProfile(mobile.trim(), displayName.trim());
+      toast.success("Profile updated successfully");
+      setHasChanges(false);
+      await load();
+      onProfileUpdate?.();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.toLowerCase().includes("mobile")) {
+        setErrors({ mobile: "This mobile number is already registered." });
       } else {
-        toast.success("Profile updated");
-        setEditing(false);
-        await load();
+        setErrors({ general: errorMessage || "Failed to update profile." });
+        toast.error("Failed to update profile");
       }
-    } catch {
-      toast.error("Failed to update profile");
     } finally {
       setSaving(false);
     }
   };
 
-  const copyPrincipal = () => {
-    if (profile) {
-      navigator.clipboard.writeText(profile.principal.toString()).then(() => {
-        toast.success("Principal ID copied");
-      }).catch(() => {
-        toast.error("Failed to copy");
-      });
-    }
-  };
-
   if (loading) {
     return (
-      <div className="flex h-40 items-center justify-center">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      <div className="px-4 py-4 space-y-4">
+        <div className="h-8 w-32 animate-pulse rounded-lg bg-muted" />
+        <div className="h-32 animate-pulse rounded-2xl bg-muted" />
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />
+          ))}
+        </div>
       </div>
     );
   }
 
-  const initials = profile ? getInitials(profile.displayName) : "?";
-  const principalStr = profile ? profile.principal.toString() : "";
+  const initials = profile ? getInitials(profile.displayName || "?") : "?";
+  const memberSince = profile
+    ? new Date(Number(profile.createdAt) / 1_000_000).toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+      })
+    : "";
 
   return (
-    <div className="px-4 py-4">
-      <h2 className="mb-6 text-lg font-bold text-slate-800">Profile</h2>
+    <TooltipProvider>
+      <div className="px-4 py-4 space-y-4">
+        <h2 className="text-lg font-bold text-foreground">Profile</h2>
 
-      <div className="mb-4 flex flex-col items-center rounded-2xl bg-white p-6 shadow-sm">
-        <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-2xl font-bold text-white">
-          {initials}
+        {/* Avatar section */}
+        <div className="flex flex-col items-center rounded-2xl bg-card border border-border p-6 shadow-xs">
+          <div className="mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-primary text-2xl font-bold text-primary-foreground shadow-sm">
+            {initials}
+          </div>
+          <p className="text-lg font-bold text-foreground">
+            {profile?.displayName || "Anonymous"}
+          </p>
+          {memberSince && (
+            <p className="mt-1 text-xs text-muted-foreground/60">Member since {memberSince}</p>
+          )}
         </div>
 
-        {editing ? (
-          <div className="flex w-full items-center gap-2">
+        {/* Form fields */}
+        <div className="rounded-2xl bg-card border border-border p-4 shadow-xs space-y-4">
+          <h3 className="text-sm font-semibold text-foreground">Account Details</h3>
+
+          {/* Display Name — Editable */}
+          <div>
+            <label
+              className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+              htmlFor="profile-displayName"
+            >
+              <User className="h-3.5 w-3.5" />
+              Name <span className="text-destructive">*</span>
+            </label>
             <input
+              id="profile-displayName"
               type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-center text-lg font-semibold text-slate-800 outline-none focus:border-blue-500"
+              value={displayName}
+              onChange={(e) => {
+                setDisplayName(e.target.value);
+                setErrors((prev) => ({ ...prev, displayName: undefined }));
+              }}
+              placeholder="Your name"
+              className={`w-full rounded-xl border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors focus:ring-2 ${
+                errors.displayName
+                  ? "border-destructive focus:border-destructive focus:ring-destructive/20"
+                  : "border-input focus:border-primary focus:ring-primary/20"
+              }`}
               maxLength={100}
             />
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving || !newName.trim()}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-green-600 text-white disabled:opacity-60"
-            >
-              {saving ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              ) : (
-                <Check className="h-4 w-4" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setEditing(false); setNewName(profile?.displayName ?? ""); }}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {errors.displayName && (
+              <p className="mt-1 text-xs text-destructive">{errors.displayName}</p>
+            )}
           </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <p className="text-xl font-semibold text-slate-800">{profile?.displayName}</p>
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
 
-      <div className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
-        <div className="mb-1 flex items-center gap-2">
-          <User className="h-4 w-4 text-slate-400" />
-          <p className="text-xs font-medium text-slate-500">Principal ID</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <p className="flex-1 truncate font-mono text-xs text-slate-700">
-            {truncatePrincipal(principalStr)}
-          </p>
+          {/* Email — READ ONLY, Permanent */}
+          <div>
+            <label
+              className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+              htmlFor="profile-email"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              Email (permanent)
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Lock className="h-3 w-3 text-muted-foreground/60 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Email cannot be changed after registration</p>
+                </TooltipContent>
+              </Tooltip>
+            </label>
+            <div className="relative">
+              <input
+                id="profile-email"
+                type="email"
+                value={profile?.email ?? ""}
+                readOnly
+                className="w-full rounded-xl border border-input bg-muted/50 px-4 py-2.5 pr-10 text-sm text-muted-foreground outline-none cursor-not-allowed"
+              />
+              <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
+            </div>
+            <p className="mt-1 text-xs text-amber-600/80">
+              Email is permanent and cannot be changed
+            </p>
+          </div>
+
+          {/* Mobile — Editable */}
+          <div>
+            <label
+              className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+              htmlFor="profile-mobile"
+            >
+              <Phone className="h-3.5 w-3.5" />
+              Mobile Number <span className="text-destructive">*</span>
+            </label>
+            <input
+              id="profile-mobile"
+              type="tel"
+              value={mobile}
+              onChange={(e) => {
+                setMobile(e.target.value);
+                setErrors((prev) => ({ ...prev, mobile: undefined }));
+              }}
+              placeholder="+1 234 567 8900"
+              className={`w-full rounded-xl border bg-background px-4 py-2.5 text-sm text-foreground outline-none transition-colors focus:ring-2 ${
+                errors.mobile
+                  ? "border-destructive focus:border-destructive focus:ring-destructive/20"
+                  : "border-input focus:border-primary focus:ring-primary/20"
+              }`}
+            />
+            {errors.mobile && (
+              <p className="mt-1 text-xs text-destructive">{errors.mobile}</p>
+            )}
+          </div>
+
+          {errors.general && (
+            <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3">
+              <p className="text-sm text-destructive">{errors.general}</p>
+            </div>
+          )}
+
+          {/* Save button */}
           <button
             type="button"
-            onClick={copyPrincipal}
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200"
+            onClick={handleSave}
+            disabled={saving || !hasChanges}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Copy className="h-3.5 w-3.5" />
+            {saving ? (
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
+            ) : hasChanges ? (
+              "Save Changes"
+            ) : (
+              "No Changes"
+            )}
           </button>
         </div>
-        <p className="mt-1 font-mono text-xs text-slate-400 break-all">{principalStr}</p>
-      </div>
 
-      <button
-        type="button"
-        onClick={clear}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 py-4 text-sm font-medium text-red-600 hover:bg-red-100"
-      >
-        <LogOut className="h-4 w-4" />
-        Sign Out
-      </button>
-    </div>
+        {/* Principal ID */}
+        {principalStr && (
+          <div className="rounded-2xl bg-card border border-border p-4 shadow-xs">
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Your Identity (Principal)</p>
+            <p className="font-mono text-xs text-muted-foreground/80 break-all">{principalStr}</p>
+          </div>
+        )}
+
+        {/* Sign Out */}
+        <button
+          type="button"
+          onClick={clear}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/5 py-4 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </button>
+
+        {/* Footer */}
+        <p className="text-center text-xs text-muted-foreground/50 pb-2">
+          © 2026. Built with ❤️ using{" "}
+          <a
+            href="https://caffeine.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-muted-foreground transition-colors"
+          >
+            caffeine.ai
+          </a>
+        </p>
+      </div>
+    </TooltipProvider>
   );
 }

@@ -1,76 +1,45 @@
 import Map "mo:core/Map";
 import Array "mo:core/Array";
-import Int "mo:core/Int";
-import Iter "mo:core/Iter";
-import Order "mo:core/Order";
-import Text "mo:core/Text";
-import Float "mo:core/Float";
-import Runtime "mo:core/Runtime";
-import Principal "mo:core/Principal";
 import Time "mo:core/Time";
+import Float "mo:core/Float";
+import Text "mo:core/Text";
+import Runtime "mo:core/Runtime";
+import Iter "mo:core/Iter";
+import Principal "mo:core/Principal";
+import Migration "migration";
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
+(with migration = Migration.run)
 actor {
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
 
-  module User {
-    public func compare(u1 : User, u2 : User) : Order.Order {
-      Principal.compare(u1.principal, u2.principal);
-    };
-  };
-
-  module Contact {
-    public func compare(c1 : Contact, c2 : Contact) : Order.Order {
-      Text.compare(c1.id, c2.id);
-    };
-  };
-
-  module BorrowLendRequest {
-    public func compare(r1 : BorrowLendRequest, r2 : BorrowLendRequest) : Order.Order {
-      Text.compare(r1.id, r2.id);
-    };
-  };
-
-  module Transaction {
-    public func compare(t1 : Transaction, t2 : Transaction) : Order.Order {
-      Text.compare(t1.id, t2.id);
-    };
-  };
-
-  module Notification {
-    public func compare(n1 : Notification, n2 : Notification) : Order.Order {
-      Text.compare(n1.id, n2.id);
-    };
-  };
-
-  // Types
-  type User = {
-    principal : Principal;
+  type UserProfile = {
     displayName : Text;
+    email : Text;
+    mobile : Text;
     createdAt : Time.Time;
-    isActive : Bool;
   };
 
   type Contact = {
-    id : Text;
-    ownerPrincipal : Principal;
-    contactPrincipal : Principal;
-    nickName : Text;
-    createdAt : Time.Time;
+    principal : Principal;
+    addedAt : Time.Time;
   };
+
+  type RequestType = { #borrow; #lend };
+  type RequestStatus = { #pending; #accepted; #rejected; #completed };
 
   type BorrowLendRequest = {
     id : Text;
     fromPrincipal : Principal;
     toPrincipal : Principal;
+    requestType : RequestType;
     amount : Float;
-    requestType : Text;
-    status : Text;
-    notes : Text;
+    description : Text;
+    status : RequestStatus;
     createdAt : Time.Time;
-    respondedAt : ?Time.Time;
+    updatedAt : Time.Time;
   };
 
   type Transaction = {
@@ -79,288 +48,419 @@ actor {
     fromPrincipal : Principal;
     toPrincipal : Principal;
     amount : Float;
-    transactionType : Text;
-    createdAt : Time.Time;
+    requestType : RequestType;
+    completedAt : Time.Time;
   };
 
   type Notification = {
     id : Text;
-    userPrincipal : Principal;
+    userId : Principal;
     message : Text;
-    isRead : Bool;
+    read : Bool;
     createdAt : Time.Time;
+    relatedRequestId : ?Text;
   };
 
-  public type UserProfile = {
-    name : Text;
-    displayName : Text;
-    createdAt : Time.Time;
-    isActive : Bool;
-  };
-
-  // Persistent storage using core library
-  let users = Map.empty<Principal, User>();
-  let contacts = Map.empty<Text, Contact>();
+  // Persistent storage
+  let profiles = Map.empty<Principal, UserProfile>();
+  let mobileIndex = Map.empty<Text, Principal>();
+  let contacts = Map.empty<Principal, Map.Map<Principal, Contact>>();
   let requests = Map.empty<Text, BorrowLendRequest>();
   let transactions = Map.empty<Text, Transaction>();
-  let notifications = Map.empty<Text, Notification>();
-  let userProfiles = Map.empty<Principal, UserProfile>();
+  let notifications = Map.empty<Principal, Map.Map<Text, Notification>>();
 
-  // Utility functions
-  func generateId(prefix : Text, timestamp : Time.Time) : Text {
-    prefix # "_" # timestamp.toText();
+  // Helper functions
+  func generateId(prefix : Text) : Text {
+    prefix # "_" # Time.now().toText();
   };
 
-  func getCurrentTime() : Time.Time {
-    Time.now();
+  func getOrCreateContacts(caller : Principal) : Map.Map<Principal, Contact> {
+    switch (contacts.get(caller)) {
+      case (?existing) { existing };
+      case (null) {
+        let newContacts = Map.empty<Principal, Contact>();
+        contacts.add(caller, newContacts);
+        newContacts;
+      };
+    };
   };
 
-  // UserProfile API Functions (required by frontend)
+  func getOrCreateNotifications(caller : Principal) : Map.Map<Text, Notification> {
+    switch (notifications.get(caller)) {
+      case (?existing) { existing };
+      case (null) {
+        let newNotifications = Map.empty<Text, Notification>();
+        notifications.add(caller, newNotifications);
+        newNotifications;
+      };
+    };
+  };
+
+  // Frontend-required profile functions
   public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view profiles");
     };
-    userProfiles.get(caller);
-  };
-
-  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view profiles");
-    };
-    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Can only view your own profile");
-    };
-    userProfiles.get(user);
+    profiles.get(caller);
   };
 
   public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can save profiles");
     };
-    userProfiles.add(caller, profile);
+
+    // Validate non-empty fields
+    if (profile.mobile.size() == 0 or profile.displayName.size() == 0 or profile.email.size() == 0) {
+      Runtime.trap("Mobile, displayName, and email cannot be empty");
+    };
+
+    // Check if mobile is already taken by another user
+    switch (mobileIndex.get(profile.mobile)) {
+      case (?existing) {
+        if (existing != caller) { 
+          Runtime.trap("Mobile number already exists");
+        };
+      };
+      case (null) {};
+    };
+
+    // Remove old mobile index if it exists and is different
+    switch (profiles.get(caller)) {
+      case (?oldProfile) {
+        if (oldProfile.mobile != profile.mobile) {
+          mobileIndex.remove(oldProfile.mobile);
+        };
+      };
+      case (null) {};
+    };
+
+    profiles.add(caller, profile);
+    mobileIndex.add(profile.mobile, caller);
+  };
+
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile");
+    };
+    profiles.get(user);
   };
 
   // API Functions
-  public shared ({ caller }) func registerOrUpdateProfile(displayName : Text) : async Text {
+  // User Profiles
+  public shared ({ caller }) func registerProfile(mobile : Text, displayName : Text, email : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can register profiles");
     };
 
-    if (displayName.isEmpty()) {
-      Runtime.trap("Display name cannot be empty");
+    // Validate non-empty fields
+    if (mobile.size() == 0 or displayName.size() == 0 or email.size() == 0) {
+      Runtime.trap("Mobile, displayName, and email cannot be empty");
     };
 
-    let now = getCurrentTime();
-    let user : User = {
-      principal = caller;
-      displayName;
-      createdAt = now;
-      isActive = true;
+    // Check if profile or mobile already exists
+    switch (profiles.get(caller)) {
+      case (?_) { Runtime.trap("Profile already exists for this principal") };
+      case (null) {};
+    };
+    switch (mobileIndex.get(mobile)) {
+      case (?existing) {
+        if (existing != caller) { Runtime.trap("Mobile number already exists") };
+      };
+      case (null) {};
     };
 
-    users.add(caller, user);
-
-    // Also update UserProfile for frontend compatibility
     let profile : UserProfile = {
-      name = displayName;
       displayName;
-      createdAt = now;
-      isActive = true;
+      email;
+      mobile;
+      createdAt = Time.now();
     };
-    userProfiles.add(caller, profile);
 
-    "Profile registered/updated successfully";
+    profiles.add(caller, profile);
+    mobileIndex.add(mobile, caller);
   };
 
-  public query ({ caller }) func getMyProfile() : async User {
+  public shared ({ caller }) func updateProfile(mobile : Text, displayName : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view their profile");
+      Runtime.trap("Unauthorized: Only users can update profiles");
     };
 
-    switch (users.get(caller)) {
-      case (null) { Runtime.trap("User not found") };
-      case (?user) { user };
+    // Validate non-empty fields
+    if (mobile.size() == 0 or displayName.size() == 0) {
+      Runtime.trap("Mobile and displayName cannot be empty");
     };
+
+    let currentProfile = switch (profiles.get(caller)) {
+      case (?p) { p };
+      case (null) { Runtime.trap("Profile not found") };
+    };
+
+    // Check if mobile already exists
+    switch (mobileIndex.get(mobile)) {
+      case (?existing) {
+        if (existing != caller) { Runtime.trap("Mobile number already exists") };
+      };
+      case (null) {};
+    };
+
+    // Remove old mobile index if different
+    if (currentProfile.mobile != mobile) {
+      mobileIndex.remove(currentProfile.mobile);
+    };
+
+    let updatedProfile : UserProfile = {
+      displayName;
+      email = currentProfile.email;
+      mobile;
+      createdAt = currentProfile.createdAt;
+    };
+
+    profiles.add(caller, updatedProfile);
+    mobileIndex.add(mobile, caller);
   };
 
-  public shared ({ caller }) func addContact(contactPrincipal : Principal, nickName : Text) : async Text {
+  public query ({ caller }) func getMyProfile() : async ?UserProfile {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can view profiles");
+    };
+    profiles.get(caller);
+  };
+
+  public query ({ caller }) func isProfileComplete() : async Bool {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can check profile status");
+    };
+    profiles.containsKey(caller);
+  };
+
+  public query ({ caller }) func searchContactByMobileOrEmail(searchTerm : Text) : async [(Principal, UserProfile)] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can search for contacts");
+    };
+
+    switch (profiles.get(caller)) {
+      case (null) { Runtime.trap("Complete your profile first") };
+      case (?_) {};
+    };
+
+    profiles.entries().toArray().filter(
+      func((p, profile)) {
+        p != caller and (profile.mobile.contains(#text searchTerm) or profile.email.contains(#text searchTerm));
+      }
+    );
+  };
+
+  // Contacts
+  public shared ({ caller }) func addContact(contactPrincipal : Principal) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can add contacts");
     };
 
-    if (nickName.isEmpty()) {
-      Runtime.trap("Nick name cannot be empty");
-    };
-
-    if (caller == contactPrincipal) {
-      Runtime.trap("Cannot add yourself as a contact");
-    };
-
-    let contactId = generateId("contact", getCurrentTime());
     let contact : Contact = {
-      id = contactId;
-      ownerPrincipal = caller;
-      contactPrincipal;
-      nickName;
-      createdAt = getCurrentTime();
+      principal = contactPrincipal;
+      addedAt = Time.now();
     };
 
-    contacts.add(contactId, contact);
-    "Contact added successfully";
+    let callerContacts = getOrCreateContacts(caller);
+    callerContacts.add(contactPrincipal, contact);
+
+    // In-app notification to added person
+    createNotification(contactPrincipal, "You have been added as a contact", null);
   };
 
-  public query ({ caller }) func getMyContacts() : async [Contact] {
+  public shared ({ caller }) func removeContact(contactPrincipal : Principal) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can remove contacts");
+    };
+
+    let callerContacts = getOrCreateContacts(caller);
+    callerContacts.remove(contactPrincipal);
+  };
+
+  public query ({ caller }) func getContacts() : async [Contact] {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view contacts");
     };
 
-    contacts.values().toArray().filter(
-      func(contact) {
-        contact.ownerPrincipal == caller;
-      }
-    );
+    switch (contacts.get(caller)) {
+      case (?c) {
+        c.values().toArray();
+      };
+      case (null) { [] };
+    };
   };
 
-  public shared ({ caller }) func createRequest(toPrincipal : Principal, amount : Float, requestType : Text, notes : Text) : async Text {
+  public query ({ caller }) func isContact(contactPrincipal : Principal) : async Bool {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can check contacts");
+    };
+
+    switch (contacts.get(caller)) {
+      case (?c) {
+        c.containsKey(contactPrincipal);
+      };
+      case (null) { false };
+    };
+  };
+
+  // Borrow/Lend Requests
+  public shared ({ caller }) func createRequest(toPrincipal : Principal, requestType : RequestType, amount : Float, description : Text) : async Text {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can create requests");
     };
 
-    if (amount <= 0) {
-      Runtime.trap("Amount must be greater than 0");
+    let fromProfile = switch (profiles.get(caller)) {
+      case (?p) { p };
+      case (null) { Runtime.trap("Complete your profile first") };
+    };
+    switch (profiles.get(toPrincipal)) {
+      case (null) { Runtime.trap("Recipient has no profile") };
+      case (?_) {};
     };
 
-    if (caller == toPrincipal) {
-      Runtime.trap("Cannot create a request to yourself");
-    };
-
-    // Check for duplicate pending request
-    let duplicate = requests.values().toArray().any(
-      func(request) {
-        request.fromPrincipal == caller and request.toPrincipal == toPrincipal and request.status == "pending";
-      }
-    );
-
-    if (duplicate) {
-      Runtime.trap("Duplicate pending request exists");
-    };
-
-    let requestId = generateId("request", getCurrentTime());
+    let id = generateId("req");
+    let now = Time.now();
     let request : BorrowLendRequest = {
-      id = requestId;
+      id;
       fromPrincipal = caller;
       toPrincipal;
-      amount;
       requestType;
-      status = "pending";
-      notes;
-      createdAt = getCurrentTime();
-      respondedAt = null;
+      amount;
+      description;
+      status = #pending;
+      createdAt = now;
+      updatedAt = now;
     };
 
-    requests.add(requestId, request);
-
-    // Create notification for recipient
-    let notificationId = generateId("notification", getCurrentTime());
-    let notification : Notification = {
-      id = notificationId;
-      userPrincipal = toPrincipal;
-      message = "You have a new " # requestType # " request from " # caller.toText();
-      isRead = false;
-      createdAt = getCurrentTime();
-    };
-
-    notifications.add(notificationId, notification);
-    "Request created successfully";
+    requests.add(id, request);
+    createNotification(toPrincipal, "New request from " # fromProfile.displayName, ?id);
+    id;
   };
 
-  public query ({ caller }) func getMyRequests() : async {
-    sent : [BorrowLendRequest];
-    received : [BorrowLendRequest];
-  } {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can view requests");
-    };
-
-    let sentRequests = requests.values().toArray().filter(
-      func(request) {
-        request.fromPrincipal == caller;
-      }
-    );
-
-    let receivedRequests = requests.values().toArray().filter(
-      func(request) {
-        request.toPrincipal == caller;
-      }
-    );
-
-    {
-      sent = sentRequests;
-      received = receivedRequests;
-    };
-  };
-
-  public shared ({ caller }) func respondToRequest(requestId : Text, accept : Bool) : async Text {
+  public shared ({ caller }) func respondToRequest(requestId : Text, accept : Bool) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can respond to requests");
     };
 
-    let request = switch (requests.get(requestId)) {
+    let req = switch (requests.get(requestId)) {
+      case (?r) { r };
       case (null) { Runtime.trap("Request not found") };
-      case (?req) { req };
     };
 
-    if (request.toPrincipal != caller) {
-      Runtime.trap("Unauthorized to respond to this request");
+    if (req.toPrincipal != caller) {
+      Runtime.trap("Unauthorized: Only the recipient can respond to this request");
     };
 
-    if (request.status != "pending") {
-      Runtime.trap("Request is no longer pending");
+    let newStatus = if (accept) { #accepted } else { #rejected };
+    let updatedRequest : BorrowLendRequest = {
+      id = req.id;
+      fromPrincipal = req.fromPrincipal;
+      toPrincipal = req.toPrincipal;
+      requestType = req.requestType;
+      amount = req.amount;
+      description = req.description;
+      status = newStatus;
+      createdAt = req.createdAt;
+      updatedAt = Time.now();
+    };
+
+    requests.add(requestId, updatedRequest);
+    createNotification(req.fromPrincipal, (if (accept) { "Request accepted" } else { "Request rejected" }), ?requestId);
+
+    if (accept) {
+      let transactionId = generateId("txn");
+      let txn : Transaction = {
+        id = transactionId;
+        requestId;
+        fromPrincipal = req.fromPrincipal;
+        toPrincipal = req.toPrincipal;
+        amount = req.amount;
+        requestType = req.requestType;
+        completedAt = Time.now();
+      };
+      transactions.add(transactionId, txn);
+    };
+  };
+
+  public shared ({ caller }) func markCompleted(requestId : Text) : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can mark requests as completed");
+    };
+
+    let req = switch (requests.get(requestId)) {
+      case (?r) { r };
+      case (null) { Runtime.trap("Request not found") };
+    };
+
+    if (req.fromPrincipal != caller and req.toPrincipal != caller) {
+      Runtime.trap("Unauthorized: Only parties involved can mark request as completed");
+    };
+
+    if (req.status != #accepted) {
+      Runtime.trap("Only accepted requests can be marked as completed");
     };
 
     let updatedRequest : BorrowLendRequest = {
-      id = request.id;
-      fromPrincipal = request.fromPrincipal;
-      toPrincipal = request.toPrincipal;
-      amount = request.amount;
-      requestType = request.requestType;
-      status = if (accept) { "accepted" } else { "declined" };
-      notes = request.notes;
-      createdAt = request.createdAt;
-      respondedAt = ?getCurrentTime();
+      id = req.id;
+      fromPrincipal = req.fromPrincipal;
+      toPrincipal = req.toPrincipal;
+      requestType = req.requestType;
+      amount = req.amount;
+      description = req.description;
+      status = #completed;
+      createdAt = req.createdAt;
+      updatedAt = Time.now();
     };
 
     requests.add(requestId, updatedRequest);
 
-    // Create notification for sender
-    let notificationId = generateId("notification", getCurrentTime());
+    // Notify both parties
+    createNotification(req.fromPrincipal, "Request marked as completed", ?requestId);
+    createNotification(req.toPrincipal, "Request marked as completed", ?requestId);
+  };
+
+  func createNotification(userId : Principal, message : Text, relatedRequestId : ?Text) {
+    let notifId = generateId("notif");
     let notification : Notification = {
-      id = notificationId;
-      userPrincipal = request.fromPrincipal;
-      message = "Your request was " # (if (accept) { "accepted" } else { "declined" });
-      isRead = false;
-      createdAt = getCurrentTime();
+      id = notifId;
+      userId;
+      message;
+      read = false;
+      createdAt = Time.now();
+      relatedRequestId;
     };
 
-    notifications.add(notificationId, notification);
+    let userNotifications = getOrCreateNotifications(userId);
+    userNotifications.add(notifId, notification);
+  };
 
-    if (accept) {
-      // Create transaction record
-      let transactionId = generateId("transaction", getCurrentTime());
-      let transaction : Transaction = {
-        id = transactionId;
-        requestId;
-        fromPrincipal = request.fromPrincipal;
-        toPrincipal = request.toPrincipal;
-        amount = request.amount;
-        transactionType = request.requestType;
-        createdAt = getCurrentTime();
+  public query ({ caller }) func getMyRequests() : async [BorrowLendRequest] {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can view requests");
+    };
+
+    requests.values().toArray().filter(
+      func(req) {
+        req.fromPrincipal == caller or req.toPrincipal == caller;
+      }
+    );
+  };
+
+  public query ({ caller }) func getRequestById(requestId : Text) : async ?BorrowLendRequest {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can view requests");
+    };
+
+    switch (requests.get(requestId)) {
+      case (?req) {
+        if (req.fromPrincipal == caller or req.toPrincipal == caller or AccessControl.isAdmin(accessControlState, caller)) {
+          ?req;
+        } else {
+          Runtime.trap("Unauthorized: Can only view your own requests");
+        };
       };
-
-      transactions.add(transactionId, transaction);
+      case (null) { null };
     };
-
-    "Request responded successfully";
   };
 
   public query ({ caller }) func getMyTransactions() : async [Transaction] {
@@ -369,8 +469,8 @@ actor {
     };
 
     transactions.values().toArray().filter(
-      func(transaction) {
-        transaction.fromPrincipal == caller or transaction.toPrincipal == caller;
+      func(txn) {
+        txn.fromPrincipal == caller or txn.toPrincipal == caller;
       }
     );
   };
@@ -380,103 +480,110 @@ actor {
       Runtime.trap("Unauthorized: Only users can view notifications");
     };
 
-    notifications.values().toArray().filter(
-      func(notification) {
-        notification.userPrincipal == caller;
-      }
-    );
+    switch (notifications.get(caller)) {
+      case (?userNotifs) { userNotifs.values().toArray() };
+      case (null) { [] };
+    };
   };
 
-  public shared ({ caller }) func markNotificationRead(notificationId : Text) : async Text {
+  public shared ({ caller }) func markNotificationRead(notificationId : Text) : async () {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can mark notifications");
+      Runtime.trap("Unauthorized: Only users can mark notifications as read");
     };
 
-    let notification = switch (notifications.get(notificationId)) {
-      case (null) { Runtime.trap("Notification not found") };
-      case (?notif) { notif };
-    };
-
-    if (notification.userPrincipal != caller) {
-      Runtime.trap("Unauthorized to mark this notification");
-    };
-
-    let updatedNotification : Notification = {
-      id = notification.id;
-      userPrincipal = notification.userPrincipal;
-      message = notification.message;
-      isRead = true;
-      createdAt = notification.createdAt;
-    };
-
-    notifications.add(notificationId, updatedNotification);
-    "Notification marked as read";
-  };
-
-  public shared ({ caller }) func markAllNotificationsRead() : async Text {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can mark notifications");
-    };
-
-    let userNotifications = notifications.values().toArray().filter(
-      func(notification) {
-        notification.userPrincipal == caller and not notification.isRead;
-      }
-    );
-
-    userNotifications.forEach(
-      func(notification) {
-        let updatedNotification : Notification = {
-          id = notification.id;
-          userPrincipal = notification.userPrincipal;
-          message = notification.message;
-          isRead = true;
-          createdAt = notification.createdAt;
+    let userNotifs = getOrCreateNotifications(caller);
+    switch (userNotifs.get(notificationId)) {
+      case (?notif) {
+        if (notif.userId != caller) {
+          Runtime.trap("Unauthorized: Can only mark your own notifications as read");
         };
-        notifications.add(notification.id, updatedNotification);
+        let updatedNotif : Notification = {
+          id = notif.id;
+          userId = notif.userId;
+          message = notif.message;
+          read = true;
+          createdAt = notif.createdAt;
+          relatedRequestId = notif.relatedRequestId;
+        };
+        userNotifs.add(notificationId, updatedNotif);
+      };
+      case (null) { () };
+    };
+  };
+
+  public shared ({ caller }) func markAllNotificationsRead() : async () {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can mark notifications as read");
+    };
+
+    let userNotifs = getOrCreateNotifications(caller);
+    userNotifs.entries().forEach(
+      func(id, notif) {
+        let updatedNotif : Notification = {
+          id = notif.id;
+          userId = notif.userId;
+          message = notif.message;
+          read = true;
+          createdAt = notif.createdAt;
+          relatedRequestId = notif.relatedRequestId;
+        };
+        userNotifs.add(id, updatedNotif);
       }
     );
-    "All notifications marked as read";
+  };
+
+  public query ({ caller }) func getUnreadCount() : async Nat {
+    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
+      Runtime.trap("Unauthorized: Only users can view notification count");
+    };
+
+    switch (notifications.get(caller)) {
+      case (?userNotifs) {
+        userNotifs.values().toArray().filter(
+          func(n) { not n.read }
+        ).size();
+      };
+      case (null) { 0 };
+    };
   };
 
   public query ({ caller }) func getDashboardSummary() : async {
-    totalBorrowed : Float;
-    totalLent : Float;
-    pendingRequests : Nat;
+    totalOwe : Float;
+    totalOwedToMe : Float;
+    pendingCount : Nat;
   } {
     if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
       Runtime.trap("Unauthorized: Only users can view dashboard");
     };
 
-    let userTransactions = transactions.values().toArray().filter(
-      func(transaction) {
-        transaction.fromPrincipal == caller or transaction.toPrincipal == caller;
+    let myRequests = requests.values().toArray().filter(
+      func(req) {
+        req.fromPrincipal == caller or req.toPrincipal == caller;
       }
     );
 
-    var totalBorrowed : Float = 0;
-    var totalLent : Float = 0;
-
-    userTransactions.forEach(
-      func(transaction) {
-        if (transaction.fromPrincipal == caller) {
-          totalLent := totalLent + transaction.amount;
-        } else if (transaction.toPrincipal == caller) {
-          totalBorrowed := totalBorrowed + transaction.amount;
-        };
-      }
+    let totalOwe = myRequests.filter(
+      func(r) { r.fromPrincipal == caller and r.requestType == #borrow and r.status == #accepted }
+    ).foldLeft(
+      0.0,
+      func(total, r) { total + r.amount },
     );
 
-    let pendingCount = requests.values().toArray().filter(
-      func(request) {
-        request.toPrincipal == caller and request.status == "pending";
-      }
+    let totalOwedToMe = myRequests.filter(
+      func(r) { r.fromPrincipal == caller and r.requestType == #lend and r.status == #accepted }
+    ).foldLeft(
+      0.0,
+      func(total, r) { total + r.amount },
+    );
+
+    let pendingCount = myRequests.filter(
+      func(r) { r.status == #pending }
     ).size();
 
     {
-      totalBorrowed;
-      totalLent;
-      pendingRequests = pendingCount;
+      totalOwe;
+      totalOwedToMe;
+      pendingCount;
     };
   };
 };

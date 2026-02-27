@@ -13,101 +13,110 @@ export const UserRole = IDL.Variant({
   'user' : IDL.Null,
   'guest' : IDL.Null,
 });
+export const RequestType = IDL.Variant({
+  'lend' : IDL.Null,
+  'borrow' : IDL.Null,
+});
 export const Time = IDL.Int;
 export const UserProfile = IDL.Record({
   'displayName' : IDL.Text,
-  'name' : IDL.Text,
   'createdAt' : Time,
-  'isActive' : IDL.Bool,
+  'email' : IDL.Text,
+  'mobile' : IDL.Text,
 });
 export const Contact = IDL.Record({
-  'id' : IDL.Text,
-  'nickName' : IDL.Text,
-  'ownerPrincipal' : IDL.Principal,
-  'createdAt' : Time,
-  'contactPrincipal' : IDL.Principal,
+  'principal' : IDL.Principal,
+  'addedAt' : Time,
 });
 export const Notification = IDL.Record({
   'id' : IDL.Text,
+  'userId' : IDL.Principal,
   'createdAt' : Time,
-  'isRead' : IDL.Bool,
-  'userPrincipal' : IDL.Principal,
+  'read' : IDL.Bool,
+  'relatedRequestId' : IDL.Opt(IDL.Text),
   'message' : IDL.Text,
 });
-export const User = IDL.Record({
-  'principal' : IDL.Principal,
-  'displayName' : IDL.Text,
-  'createdAt' : Time,
-  'isActive' : IDL.Bool,
+export const RequestStatus = IDL.Variant({
+  'pending' : IDL.Null,
+  'completed' : IDL.Null,
+  'rejected' : IDL.Null,
+  'accepted' : IDL.Null,
 });
 export const BorrowLendRequest = IDL.Record({
   'id' : IDL.Text,
-  'status' : IDL.Text,
+  'status' : RequestStatus,
   'createdAt' : Time,
+  'description' : IDL.Text,
   'toPrincipal' : IDL.Principal,
+  'updatedAt' : Time,
   'fromPrincipal' : IDL.Principal,
-  'notes' : IDL.Text,
   'amount' : IDL.Float64,
-  'respondedAt' : IDL.Opt(Time),
-  'requestType' : IDL.Text,
+  'requestType' : RequestType,
 });
 export const Transaction = IDL.Record({
   'id' : IDL.Text,
+  'completedAt' : Time,
   'requestId' : IDL.Text,
-  'transactionType' : IDL.Text,
-  'createdAt' : Time,
   'toPrincipal' : IDL.Principal,
   'fromPrincipal' : IDL.Principal,
   'amount' : IDL.Float64,
+  'requestType' : RequestType,
 });
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
-  'addContact' : IDL.Func([IDL.Principal, IDL.Text], [IDL.Text], []),
+  'addContact' : IDL.Func([IDL.Principal], [], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'createRequest' : IDL.Func(
-      [IDL.Principal, IDL.Float64, IDL.Text, IDL.Text],
+      [IDL.Principal, RequestType, IDL.Float64, IDL.Text],
       [IDL.Text],
       [],
     ),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+  'getContacts' : IDL.Func([], [IDL.Vec(Contact)], ['query']),
   'getDashboardSummary' : IDL.Func(
       [],
       [
         IDL.Record({
-          'totalLent' : IDL.Float64,
-          'pendingRequests' : IDL.Nat,
-          'totalBorrowed' : IDL.Float64,
+          'pendingCount' : IDL.Nat,
+          'totalOwe' : IDL.Float64,
+          'totalOwedToMe' : IDL.Float64,
         }),
       ],
       ['query'],
     ),
-  'getMyContacts' : IDL.Func([], [IDL.Vec(Contact)], ['query']),
   'getMyNotifications' : IDL.Func([], [IDL.Vec(Notification)], ['query']),
-  'getMyProfile' : IDL.Func([], [User], ['query']),
-  'getMyRequests' : IDL.Func(
-      [],
-      [
-        IDL.Record({
-          'sent' : IDL.Vec(BorrowLendRequest),
-          'received' : IDL.Vec(BorrowLendRequest),
-        }),
-      ],
+  'getMyProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getMyRequests' : IDL.Func([], [IDL.Vec(BorrowLendRequest)], ['query']),
+  'getMyTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
+  'getRequestById' : IDL.Func(
+      [IDL.Text],
+      [IDL.Opt(BorrowLendRequest)],
       ['query'],
     ),
-  'getMyTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
+  'getUnreadCount' : IDL.Func([], [IDL.Nat], ['query']),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
       [IDL.Opt(UserProfile)],
       ['query'],
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-  'markAllNotificationsRead' : IDL.Func([], [IDL.Text], []),
-  'markNotificationRead' : IDL.Func([IDL.Text], [IDL.Text], []),
-  'registerOrUpdateProfile' : IDL.Func([IDL.Text], [IDL.Text], []),
-  'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [IDL.Text], []),
+  'isContact' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
+  'isProfileComplete' : IDL.Func([], [IDL.Bool], ['query']),
+  'markAllNotificationsRead' : IDL.Func([], [], []),
+  'markCompleted' : IDL.Func([IDL.Text], [], []),
+  'markNotificationRead' : IDL.Func([IDL.Text], [], []),
+  'registerProfile' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'removeContact' : IDL.Func([IDL.Principal], [], []),
+  'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [], []),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+  'searchContactByMobileOrEmail' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(IDL.Tuple(IDL.Principal, UserProfile))],
+      ['query'],
+    ),
+  'updateProfile' : IDL.Func([IDL.Text, IDL.Text], [], []),
 });
 
 export const idlInitArgs = [];
@@ -118,101 +127,104 @@ export const idlFactory = ({ IDL }) => {
     'user' : IDL.Null,
     'guest' : IDL.Null,
   });
+  const RequestType = IDL.Variant({ 'lend' : IDL.Null, 'borrow' : IDL.Null });
   const Time = IDL.Int;
   const UserProfile = IDL.Record({
     'displayName' : IDL.Text,
-    'name' : IDL.Text,
     'createdAt' : Time,
-    'isActive' : IDL.Bool,
+    'email' : IDL.Text,
+    'mobile' : IDL.Text,
   });
-  const Contact = IDL.Record({
-    'id' : IDL.Text,
-    'nickName' : IDL.Text,
-    'ownerPrincipal' : IDL.Principal,
-    'createdAt' : Time,
-    'contactPrincipal' : IDL.Principal,
-  });
+  const Contact = IDL.Record({ 'principal' : IDL.Principal, 'addedAt' : Time });
   const Notification = IDL.Record({
     'id' : IDL.Text,
+    'userId' : IDL.Principal,
     'createdAt' : Time,
-    'isRead' : IDL.Bool,
-    'userPrincipal' : IDL.Principal,
+    'read' : IDL.Bool,
+    'relatedRequestId' : IDL.Opt(IDL.Text),
     'message' : IDL.Text,
   });
-  const User = IDL.Record({
-    'principal' : IDL.Principal,
-    'displayName' : IDL.Text,
-    'createdAt' : Time,
-    'isActive' : IDL.Bool,
+  const RequestStatus = IDL.Variant({
+    'pending' : IDL.Null,
+    'completed' : IDL.Null,
+    'rejected' : IDL.Null,
+    'accepted' : IDL.Null,
   });
   const BorrowLendRequest = IDL.Record({
     'id' : IDL.Text,
-    'status' : IDL.Text,
+    'status' : RequestStatus,
     'createdAt' : Time,
+    'description' : IDL.Text,
     'toPrincipal' : IDL.Principal,
+    'updatedAt' : Time,
     'fromPrincipal' : IDL.Principal,
-    'notes' : IDL.Text,
     'amount' : IDL.Float64,
-    'respondedAt' : IDL.Opt(Time),
-    'requestType' : IDL.Text,
+    'requestType' : RequestType,
   });
   const Transaction = IDL.Record({
     'id' : IDL.Text,
+    'completedAt' : Time,
     'requestId' : IDL.Text,
-    'transactionType' : IDL.Text,
-    'createdAt' : Time,
     'toPrincipal' : IDL.Principal,
     'fromPrincipal' : IDL.Principal,
     'amount' : IDL.Float64,
+    'requestType' : RequestType,
   });
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
-    'addContact' : IDL.Func([IDL.Principal, IDL.Text], [IDL.Text], []),
+    'addContact' : IDL.Func([IDL.Principal], [], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'createRequest' : IDL.Func(
-        [IDL.Principal, IDL.Float64, IDL.Text, IDL.Text],
+        [IDL.Principal, RequestType, IDL.Float64, IDL.Text],
         [IDL.Text],
         [],
       ),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getContacts' : IDL.Func([], [IDL.Vec(Contact)], ['query']),
     'getDashboardSummary' : IDL.Func(
         [],
         [
           IDL.Record({
-            'totalLent' : IDL.Float64,
-            'pendingRequests' : IDL.Nat,
-            'totalBorrowed' : IDL.Float64,
+            'pendingCount' : IDL.Nat,
+            'totalOwe' : IDL.Float64,
+            'totalOwedToMe' : IDL.Float64,
           }),
         ],
         ['query'],
       ),
-    'getMyContacts' : IDL.Func([], [IDL.Vec(Contact)], ['query']),
     'getMyNotifications' : IDL.Func([], [IDL.Vec(Notification)], ['query']),
-    'getMyProfile' : IDL.Func([], [User], ['query']),
-    'getMyRequests' : IDL.Func(
-        [],
-        [
-          IDL.Record({
-            'sent' : IDL.Vec(BorrowLendRequest),
-            'received' : IDL.Vec(BorrowLendRequest),
-          }),
-        ],
+    'getMyProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getMyRequests' : IDL.Func([], [IDL.Vec(BorrowLendRequest)], ['query']),
+    'getMyTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
+    'getRequestById' : IDL.Func(
+        [IDL.Text],
+        [IDL.Opt(BorrowLendRequest)],
         ['query'],
       ),
-    'getMyTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
+    'getUnreadCount' : IDL.Func([], [IDL.Nat], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
         [IDL.Opt(UserProfile)],
         ['query'],
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-    'markAllNotificationsRead' : IDL.Func([], [IDL.Text], []),
-    'markNotificationRead' : IDL.Func([IDL.Text], [IDL.Text], []),
-    'registerOrUpdateProfile' : IDL.Func([IDL.Text], [IDL.Text], []),
-    'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [IDL.Text], []),
+    'isContact' : IDL.Func([IDL.Principal], [IDL.Bool], ['query']),
+    'isProfileComplete' : IDL.Func([], [IDL.Bool], ['query']),
+    'markAllNotificationsRead' : IDL.Func([], [], []),
+    'markCompleted' : IDL.Func([IDL.Text], [], []),
+    'markNotificationRead' : IDL.Func([IDL.Text], [], []),
+    'registerProfile' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'removeContact' : IDL.Func([IDL.Principal], [], []),
+    'respondToRequest' : IDL.Func([IDL.Text, IDL.Bool], [], []),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'searchContactByMobileOrEmail' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, UserProfile))],
+        ['query'],
+      ),
+    'updateProfile' : IDL.Func([IDL.Text, IDL.Text], [], []),
   });
 };
 

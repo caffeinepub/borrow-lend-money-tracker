@@ -9,50 +9,52 @@ export interface None {
 export type Option<T> = Some<T> | None;
 export type Time = bigint;
 export interface Contact {
-    id: string;
-    nickName: string;
-    ownerPrincipal: Principal;
-    createdAt: Time;
-    contactPrincipal: Principal;
+    principal: Principal;
+    addedAt: Time;
 }
 export interface Notification {
     id: string;
+    userId: Principal;
     createdAt: Time;
-    isRead: boolean;
-    userPrincipal: Principal;
+    read: boolean;
+    relatedRequestId?: string;
     message: string;
-}
-export interface User {
-    principal: Principal;
-    displayName: string;
-    createdAt: Time;
-    isActive: boolean;
 }
 export interface BorrowLendRequest {
     id: string;
-    status: string;
+    status: RequestStatus;
     createdAt: Time;
+    description: string;
     toPrincipal: Principal;
+    updatedAt: Time;
     fromPrincipal: Principal;
-    notes: string;
     amount: number;
-    respondedAt?: Time;
-    requestType: string;
+    requestType: RequestType;
 }
 export interface UserProfile {
     displayName: string;
-    name: string;
     createdAt: Time;
-    isActive: boolean;
+    email: string;
+    mobile: string;
 }
 export interface Transaction {
     id: string;
+    completedAt: Time;
     requestId: string;
-    transactionType: string;
-    createdAt: Time;
     toPrincipal: Principal;
     fromPrincipal: Principal;
     amount: number;
+    requestType: RequestType;
+}
+export enum RequestStatus {
+    pending = "pending",
+    completed = "completed",
+    rejected = "rejected",
+    accepted = "accepted"
+}
+export enum RequestType {
+    lend = "lend",
+    borrow = "borrow"
 }
 export enum UserRole {
     admin = "admin",
@@ -60,29 +62,34 @@ export enum UserRole {
     guest = "guest"
 }
 export interface backendInterface {
-    addContact(contactPrincipal: Principal, nickName: string): Promise<string>;
+    addContact(contactPrincipal: Principal): Promise<void>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
-    createRequest(toPrincipal: Principal, amount: number, requestType: string, notes: string): Promise<string>;
+    createRequest(toPrincipal: Principal, requestType: RequestType, amount: number, description: string): Promise<string>;
     getCallerUserProfile(): Promise<UserProfile | null>;
     getCallerUserRole(): Promise<UserRole>;
+    getContacts(): Promise<Array<Contact>>;
     getDashboardSummary(): Promise<{
-        totalLent: number;
-        pendingRequests: bigint;
-        totalBorrowed: number;
+        pendingCount: bigint;
+        totalOwe: number;
+        totalOwedToMe: number;
     }>;
-    getMyContacts(): Promise<Array<Contact>>;
     getMyNotifications(): Promise<Array<Notification>>;
-    getMyProfile(): Promise<User>;
-    getMyRequests(): Promise<{
-        sent: Array<BorrowLendRequest>;
-        received: Array<BorrowLendRequest>;
-    }>;
+    getMyProfile(): Promise<UserProfile | null>;
+    getMyRequests(): Promise<Array<BorrowLendRequest>>;
     getMyTransactions(): Promise<Array<Transaction>>;
+    getRequestById(requestId: string): Promise<BorrowLendRequest | null>;
+    getUnreadCount(): Promise<bigint>;
     getUserProfile(user: Principal): Promise<UserProfile | null>;
     isCallerAdmin(): Promise<boolean>;
-    markAllNotificationsRead(): Promise<string>;
-    markNotificationRead(notificationId: string): Promise<string>;
-    registerOrUpdateProfile(displayName: string): Promise<string>;
-    respondToRequest(requestId: string, accept: boolean): Promise<string>;
+    isContact(contactPrincipal: Principal): Promise<boolean>;
+    isProfileComplete(): Promise<boolean>;
+    markAllNotificationsRead(): Promise<void>;
+    markCompleted(requestId: string): Promise<void>;
+    markNotificationRead(notificationId: string): Promise<void>;
+    registerProfile(mobile: string, displayName: string, email: string): Promise<void>;
+    removeContact(contactPrincipal: Principal): Promise<void>;
+    respondToRequest(requestId: string, accept: boolean): Promise<void>;
     saveCallerUserProfile(profile: UserProfile): Promise<void>;
+    searchContactByMobileOrEmail(searchTerm: string): Promise<Array<[Principal, UserProfile]>>;
+    updateProfile(mobile: string, displayName: string): Promise<void>;
 }

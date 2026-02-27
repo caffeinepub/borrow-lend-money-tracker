@@ -12,84 +12,86 @@ import type { Principal } from '@icp-sdk/core/principal';
 
 export interface BorrowLendRequest {
   'id' : string,
-  'status' : string,
+  'status' : RequestStatus,
   'createdAt' : Time,
+  'description' : string,
   'toPrincipal' : Principal,
+  'updatedAt' : Time,
   'fromPrincipal' : Principal,
-  'notes' : string,
   'amount' : number,
-  'respondedAt' : [] | [Time],
-  'requestType' : string,
+  'requestType' : RequestType,
 }
-export interface Contact {
-  'id' : string,
-  'nickName' : string,
-  'ownerPrincipal' : Principal,
-  'createdAt' : Time,
-  'contactPrincipal' : Principal,
-}
+export interface Contact { 'principal' : Principal, 'addedAt' : Time }
 export interface Notification {
   'id' : string,
+  'userId' : Principal,
   'createdAt' : Time,
-  'isRead' : boolean,
-  'userPrincipal' : Principal,
+  'read' : boolean,
+  'relatedRequestId' : [] | [string],
   'message' : string,
 }
+export type RequestStatus = { 'pending' : null } |
+  { 'completed' : null } |
+  { 'rejected' : null } |
+  { 'accepted' : null };
+export type RequestType = { 'lend' : null } |
+  { 'borrow' : null };
 export type Time = bigint;
 export interface Transaction {
   'id' : string,
+  'completedAt' : Time,
   'requestId' : string,
-  'transactionType' : string,
-  'createdAt' : Time,
   'toPrincipal' : Principal,
   'fromPrincipal' : Principal,
   'amount' : number,
-}
-export interface User {
-  'principal' : Principal,
-  'displayName' : string,
-  'createdAt' : Time,
-  'isActive' : boolean,
+  'requestType' : RequestType,
 }
 export interface UserProfile {
   'displayName' : string,
-  'name' : string,
   'createdAt' : Time,
-  'isActive' : boolean,
+  'email' : string,
+  'mobile' : string,
 }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
-  'addContact' : ActorMethod<[Principal, string], string>,
+  'addContact' : ActorMethod<[Principal], undefined>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
-  'createRequest' : ActorMethod<[Principal, number, string, string], string>,
+  'createRequest' : ActorMethod<
+    [Principal, RequestType, number, string],
+    string
+  >,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getContacts' : ActorMethod<[], Array<Contact>>,
   'getDashboardSummary' : ActorMethod<
     [],
-    {
-      'totalLent' : number,
-      'pendingRequests' : bigint,
-      'totalBorrowed' : number,
-    }
+    { 'pendingCount' : bigint, 'totalOwe' : number, 'totalOwedToMe' : number }
   >,
-  'getMyContacts' : ActorMethod<[], Array<Contact>>,
   'getMyNotifications' : ActorMethod<[], Array<Notification>>,
-  'getMyProfile' : ActorMethod<[], User>,
-  'getMyRequests' : ActorMethod<
-    [],
-    { 'sent' : Array<BorrowLendRequest>, 'received' : Array<BorrowLendRequest> }
-  >,
+  'getMyProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getMyRequests' : ActorMethod<[], Array<BorrowLendRequest>>,
   'getMyTransactions' : ActorMethod<[], Array<Transaction>>,
+  'getRequestById' : ActorMethod<[string], [] | [BorrowLendRequest]>,
+  'getUnreadCount' : ActorMethod<[], bigint>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
-  'markAllNotificationsRead' : ActorMethod<[], string>,
-  'markNotificationRead' : ActorMethod<[string], string>,
-  'registerOrUpdateProfile' : ActorMethod<[string], string>,
-  'respondToRequest' : ActorMethod<[string, boolean], string>,
+  'isContact' : ActorMethod<[Principal], boolean>,
+  'isProfileComplete' : ActorMethod<[], boolean>,
+  'markAllNotificationsRead' : ActorMethod<[], undefined>,
+  'markCompleted' : ActorMethod<[string], undefined>,
+  'markNotificationRead' : ActorMethod<[string], undefined>,
+  'registerProfile' : ActorMethod<[string, string, string], undefined>,
+  'removeContact' : ActorMethod<[Principal], undefined>,
+  'respondToRequest' : ActorMethod<[string, boolean], undefined>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'searchContactByMobileOrEmail' : ActorMethod<
+    [string],
+    Array<[Principal, UserProfile]>
+  >,
+  'updateProfile' : ActorMethod<[string, string], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];
